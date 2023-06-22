@@ -345,9 +345,7 @@ async function processDeposit(deposit) {
 
     await updatePrice(deposit.deposit_id, price);
 
-    if (Number(price) > Number(deposit.profit_taking)) {
-        return { "deposit_id": Number(deposit.deposit_id), "withdraw_type": PROFIT_TAKING };
-    } else if (Number(price) < Number(deposit.stop_loss)) {
+    if (Number(price) < Number(deposit.stop_loss)) {
         return { "deposit_id": Number(deposit.deposit_id), "withdraw_type": STOP_LOSS };
     }
 
