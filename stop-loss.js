@@ -29,7 +29,7 @@ let connections = null;
 let FROM_BLOCK = null;
 let LOB_CW = null;
 let DEX = null;
-let BOT = "stop-loss";
+let BOT = "stopLoss";
 
 async function setupConnections() {
     const data = await fs.readFile('./networks.json', 'utf8');
