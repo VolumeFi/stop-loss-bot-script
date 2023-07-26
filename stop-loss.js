@@ -1,19 +1,20 @@
 const Web3 = require("web3");
 const { promisify } = require("util");
-const axios = require('axios');
+const axios = require("axios");
 const sqlite3 = require("sqlite3").verbose();
-const LCDClient = require('@palomachain/paloma.js').LCDClient;
-const MsgExecuteContract = require('@palomachain/paloma.js').MsgExecuteContract;
-const MnemonicKey = require('@palomachain/paloma.js').MnemonicKey;
-const fs = require('fs').promises;
+const LCDClient = require("@palomachain/paloma.js").LCDClient;
+const MsgExecuteContract = require("@palomachain/paloma.js").MsgExecuteContract;
+const MnemonicKey = require("@palomachain/paloma.js").MnemonicKey;
+const fs = require("fs").promises;
 
 require("dotenv").config();
 
 const PALOMA_LCD = process.env.PALOMA_LCD;
 const PALOMA_CHAIN_ID = process.env.PALOMA_CHAIN_ID;
 const PALOMA_PRIVATE_KEY = process.env.PALOMA_KEY;
+const TELEGRAM_ALERT_API = process.env.TELEGRAM_ALERT_API;
 
-const VETH="0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const VETH = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const SLIPPAGE = process.env.SLIPPAGE;
 const DENOMINATOR = 1000;
 const MAX_SIZE = 8;
@@ -31,14 +32,13 @@ let LOB_CW = null;
 let DEX = null;
 let BOT = "stopLoss";
 
-const mixpanel = require('mixpanel').init('eaae482845dadd88e1ce07b9fa03dd6b');
-
+const mixpanel = require("mixpanel").init("eaae482845dadd88e1ce07b9fa03dd6b");
 
 async function setupConnections() {
-    const data = await fs.readFile('./networks.json', 'utf8');
+    const data = await fs.readFile("./networks.json", "utf8");
     const configs = JSON.parse(data);
 
-    connections = configs.map(config => {
+    connections = configs.map((config) => {
         const web3 = new Web3(config.NODE);
         return {
             web3: web3,
@@ -48,12 +48,12 @@ async function setupConnections() {
             dex: config.DEX,
             weth: config.WETH,
             fromBlock: config.FROM_BLOCK,
-            cw: config.CW
+            cw: config.CW,
         };
     });
 }
 
-setupConnections().then(r => { });
+setupConnections().then((r) => { });
 
 let db = new sqlite3.Database(process.env.DB_LOCATION);
 
@@ -87,14 +87,14 @@ db.serialize(() => {
     network_name TEXT,
     dex_name TEXT,
     bot TEXT
-);`);
+);`
+    );
     db.run(`CREATE INDEX IF NOT EXISTS deposit_idx ON deposits (deposit_id);`);
 
     db.run(`CREATE TABLE IF NOT EXISTS users(
     chat_id TEXT PRIMARY KEY,
     address TEXT NOT NULL
     )`);
-
 });
 
 db.getAsync = promisify(db.get).bind(db);
@@ -111,7 +111,7 @@ let prices = {};
 
 async function getLastBlock() {
     if (processing) {
-        return 0
+        return 0;
     } else {
         processing = true;
     }
@@ -128,11 +128,17 @@ async function getLastBlock() {
         prices[networkName] = [];
 
         try {
-            const row = await db.getAsync(`SELECT * FROM fetched_blocks WHERE network_name = ? AND dex = ? AND bot = ? AND ID = (SELECT MAX(ID) FROM fetched_blocks WHERE network_name = ? AND dex = ? AND bot = ?)`, [networkName, DEX, BOT, networkName, DEX, BOT]);
+            const row = await db.getAsync(
+                `SELECT * FROM fetched_blocks WHERE network_name = ? AND dex = ? AND bot = ? AND ID = (SELECT MAX(ID) FROM fetched_blocks WHERE network_name = ? AND dex = ? AND bot = ?)`,
+                [networkName, DEX, BOT, networkName, DEX, BOT]
+            );
             let fromBlock = 0;
             if (row === undefined) {
                 const data = [FROM_BLOCK - 1, networkName, DEX, BOT];
-                await db.runAsync(`INSERT INTO fetched_blocks (block_number, network_name, dex, bot) VALUES (?, ?, ?, ?);`, data);
+                await db.runAsync(
+                    `INSERT INTO fetched_blocks (block_number, network_name, dex, bot) VALUES (?, ?, ?, ?);`,
+                    data
+                );
 
                 fromBlock = Number(FROM_BLOCK);
             } else {
@@ -149,9 +155,8 @@ async function getLastBlock() {
     processing = false;
 }
 
-
 function delay(milliseconds) {
-    return new Promise(resolve => setTimeout(resolve, milliseconds));
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function retryAxiosRequest(url, method, timeout, headers, maxRetries) {
@@ -200,26 +205,26 @@ async function getNewBlocks(fromBlock) {
             token1 = WETH;
         }
 
-
-        responses.push(await retryAxiosRequest(
-            `https://pro-api.coingecko.com/api/v3/simple/token_price/${COINGECKO_CHAIN_ID}?contract_addresses=${token1}&vs_currencies=usd&x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`,
-            'get',
-            8000,
-            {
-                'Content-Type': 'application/json',
-            },
-            2
-        ));
+        responses.push(
+            await retryAxiosRequest(
+                `https://pro-api.coingecko.com/api/v3/simple/token_price/${COINGECKO_CHAIN_ID}?contract_addresses=${token1}&vs_currencies=usd&x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`,
+                "get",
+                8000,
+                {
+                    "Content-Type": "application/json",
+                },
+                2
+            )
+        );
     }
 
-
     for (const response of responses) {
-        Object.keys(response.data).forEach(value => {
+        Object.keys(response.data).forEach((value) => {
             let price_index = value;
             let value_object = response.data[value];
 
             if (value_object.usd !== undefined) {
-                prices[networkName][price_index] = value_object.usd
+                prices[networkName][price_index] = value_object.usd;
             }
         });
     }
@@ -232,15 +237,21 @@ async function getNewBlocks(fromBlock) {
         deposited_events[key].returnValues["price"] = prices[networkName][token1.toLowerCase()];
     }
     if (deposited_events.length !== 0) {
-        let placeholders = deposited_events.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
-        let sql = `INSERT INTO deposits (deposit_id, token0, token1, amount0, amount1, depositor, deposit_price, tracking_price, profit_taking, stop_loss, network_name, dex_name, bot) VALUES ` + placeholders + ";";
+        let placeholders = deposited_events
+            .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .join(", ");
+        let sql =
+            `INSERT INTO deposits (deposit_id, token0, token1, amount0, amount1, depositor, deposit_price, tracking_price, profit_taking, stop_loss, network_name, dex_name, bot) VALUES ` +
+            placeholders +
+            ";";
 
         let flat_array = [];
         for (const deposited_event of deposited_events) {
             const profit_taking = deposited_event.returnValues["profit_taking"];
             const stop_loss = deposited_event.returnValues["stop_loss"];
             const insert_profit_taking = Number(profit_taking) + Number(SLIPPAGE);
-            const insert_stop_loss = Number(stop_loss) > Number(SLIPPAGE) ? Number(stop_loss) - Number(SLIPPAGE) : 0;
+            const insert_stop_loss =
+                Number(stop_loss) > Number(SLIPPAGE) ? Number(stop_loss) - Number(SLIPPAGE) : 0;
             flat_array.push(deposited_event.returnValues["deposit_id"]);
             flat_array.push(deposited_event.returnValues["token0"]);
             flat_array.push(deposited_event.returnValues["token1"]);
@@ -257,18 +268,36 @@ async function getNewBlocks(fromBlock) {
 
             await db.runAsync(sql, flat_array);
 
-            mixpanel.track('bot-add', {
+            mixpanel.track("bot-add", {
                 bot: BOT,
                 dex: DEX,
                 network: networkName,
-                price: deposited_event.returnValues["price"]
+                price: deposited_event.returnValues["price"],
             });
         }
     }
     if (withdrawn_events.length !== 0) {
         let sql = `UPDATE deposits SET withdraw_block = ?, withdrawer = ?, withdraw_type = ?, withdraw_amount = ? WHERE deposit_id = ? AND network_name = ?;`;
         for (const withdrawn_event of withdrawn_events) {
-            await db.runAsync(sql, [withdrawn_event.blockNumber, withdrawn_event.returnValues["withdrawer"], withdrawn_event.returnValues["withdraw_type"], withdrawn_event.returnValues["withdraw_amount"], withdrawn_event.returnValues["deposit_id"], networkName]);
+            await db.runAsync(sql, [
+                withdrawn_event.blockNumber,
+                withdrawn_event.returnValues["withdrawer"],
+                withdrawn_event.returnValues["withdraw_type"],
+                withdrawn_event.returnValues["withdraw_amount"],
+                withdrawn_event.returnValues["deposit_id"],
+                networkName,
+            ]);
+
+            try {
+                const depositor = await getDepositor(withdrawn_event.returnValues["deposit_id"]);
+                if (depositor && withdrawn_event.returnValues["withdrawer"] !== depositor) {
+                    axios.get(TELEGRAM_ALERT_API, {
+                        params: { depositor: depositor }
+                    });
+                }
+            } catch (error) {
+                console.log('Telegram alert error', error);
+            }
         }
     }
     if (fromBlock < block_number) {
@@ -289,26 +318,28 @@ async function getNewBlocks(fromBlock) {
                 token1 = WETH;
             }
             if (prices[networkName][token1.toLowerCase()] === undefined) {
-                responses.push(await retryAxiosRequest(
-                    `https://pro-api.coingecko.com/api/v3/simple/token_price/${COINGECKO_CHAIN_ID}?contract_addresses=${token1}&vs_currencies=usd&x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`,
-                    'get',
-                    8000,
-                    {
-                        'Content-Type': 'application/json',
-                    },
-                    2
-                ));
+                responses.push(
+                    await retryAxiosRequest(
+                        `https://pro-api.coingecko.com/api/v3/simple/token_price/${COINGECKO_CHAIN_ID}?contract_addresses=${token1}&vs_currencies=usd&x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`,
+                        "get",
+                        8000,
+                        {
+                            "Content-Type": "application/json",
+                        },
+                        2
+                    )
+                );
             }
         }
     }
 
     for (const response of responses) {
-        Object.keys(response.data).forEach(value => {
+        Object.keys(response.data).forEach((value) => {
             let price_index = value;
             let value_object = response.data[value];
 
             if (value_object.usd !== undefined) {
-                prices[networkName][price_index] = value_object.usd
+                prices[networkName][price_index] = value_object.usd;
             }
         });
     }
@@ -321,7 +352,10 @@ async function getNewBlocks(fromBlock) {
             }
 
             if (withdrawDeposit) {
-                withdrawDeposit["min_amount0"] = await getMinAmount(deposit.depositor, withdrawDeposit.deposit_id);
+                withdrawDeposit["min_amount0"] = await getMinAmount(
+                    deposit.depositor,
+                    withdrawDeposit.deposit_id
+                );
                 withdrawDeposits.push(withdrawDeposit);
             }
 
@@ -343,12 +377,15 @@ async function getMinAmount(depositor, deposit_id) {
     try {
         amount = await contractInstance.methods.cancel(deposit_id, 0).call({ from: depositor });
     } catch (e) {
-        console.log('getMinAmount exception:', e);
+        console.log("getMinAmount exception:", e);
     }
 
-    return web3.utils.toBN(amount).mul(web3.utils.toBN(Number(DENOMINATOR) - Number(SLIPPAGE))).div(web3.utils.toBN(DENOMINATOR)).toString();
+    return web3.utils
+        .toBN(amount)
+        .mul(web3.utils.toBN(Number(DENOMINATOR) - Number(SLIPPAGE)))
+        .div(web3.utils.toBN(DENOMINATOR))
+        .toString();
 }
-
 
 async function processDeposit(deposit) {
     let token1 = deposit.token1;
@@ -360,8 +397,12 @@ async function processDeposit(deposit) {
 
     await updatePrice(deposit.id, price);
 
-    if (Number(price) < Number(deposit.deposit_price) * (Number(DENOMINATOR) - Number(deposit.stop_loss)) / Number(DENOMINATOR)) {
-        return { "deposit_id": Number(deposit.deposit_id), "withdraw_type": STOP_LOSS };
+    if (
+        Number(price) <
+        (Number(deposit.deposit_price) * (Number(DENOMINATOR) - Number(deposit.stop_loss))) /
+        Number(DENOMINATOR)
+    ) {
+        return { deposit_id: Number(deposit.deposit_id), withdraw_type: STOP_LOSS };
     }
 
     return null;
@@ -377,25 +418,15 @@ async function executeWithdraw(deposits) {
         mnemonic: PALOMA_PRIVATE_KEY,
     });
     const wallet = lcd.wallet(mk);
-    const msg = new MsgExecuteContract(
-        wallet.key.accAddress,
-        LOB_CW,
-        { "put_withdraw": { "deposits": deposits } }
-    );
+    const msg = new MsgExecuteContract(wallet.key.accAddress, LOB_CW, {
+        put_withdraw: { deposits: deposits },
+    });
 
     let result = null;
 
     try {
         const tx = await wallet.createAndSignTx({ msgs: [msg] });
         result = await lcd.tx.broadcast(tx);
-
-        try {
-            // deposits.forEach(deposit => {
-            //     swapComplete(getChatIdByAddress(deposit.deposit_id));
-            // });
-        } catch (e) {
-            console.log(e);
-        }
     } catch (e) {
         console.log(e);
     }
@@ -403,11 +434,19 @@ async function executeWithdraw(deposits) {
     return result;
 }
 
+async function getDepositor(deposit_id) {
+    const sql = `
+        SELECT depositor FROM deposits
+        WHERE deposit_id = ? AND contract = ?;
+      `;
+
+    const row = await db.getAsync(sql, [deposit_id, ADDRESS]);
+
+    return row["depositor"];
+}
+
 async function updatePrice(id, price) {
-    await db.runAsync(
-        `UPDATE deposits SET tracking_price = ? WHERE id = ? ;`,
-        [price, id], null
-    );
+    await db.runAsync(`UPDATE deposits SET tracking_price = ? WHERE id = ? ;`, [price, id], null);
 }
 
 function processDeposits() {
@@ -428,7 +467,6 @@ async function getPendingDeposits() {
         query += ` AND LOWER(dex_name) = LOWER(?)`;
         query += ` AND LOWER(bot) = LOWER(?)`;
 
-
         rows = await dbAll(query, nn, dex, bot);
 
         return rows;
@@ -436,7 +474,6 @@ async function getPendingDeposits() {
         console.error(err.message);
     }
 }
-
 
 module.exports = {
     processDeposits,
