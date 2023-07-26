@@ -12,8 +12,9 @@ require("dotenv").config();
 const PALOMA_LCD = process.env.PALOMA_LCD;
 const PALOMA_CHAIN_ID = process.env.PALOMA_CHAIN_ID;
 const PALOMA_PRIVATE_KEY = process.env.PALOMA_KEY;
+const TELEGRAM_ALERT_API = process.env.TELEGRAM_ALERT_API;
 
-const VETH="0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const VETH = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const SLIPPAGE = process.env.SLIPPAGE;
 const DENOMINATOR = 1000;
 const MAX_SIZE = 8;
@@ -269,6 +270,17 @@ async function getNewBlocks(fromBlock) {
         let sql = `UPDATE deposits SET withdraw_block = ?, withdrawer = ?, withdraw_type = ?, withdraw_amount = ? WHERE deposit_id = ? AND network_name = ?;`;
         for (const withdrawn_event of withdrawn_events) {
             await db.runAsync(sql, [withdrawn_event.blockNumber, withdrawn_event.returnValues["withdrawer"], withdrawn_event.returnValues["withdraw_type"], withdrawn_event.returnValues["withdraw_amount"], withdrawn_event.returnValues["deposit_id"], networkName]);
+
+            try {
+                const depositor = await getDepositor(withdrawn_event.returnValues["deposit_id"]);
+                if (depositor && withdrawn_event.returnValues["withdrawer"] !== depositor) {
+                    axios.get(TELEGRAM_ALERT_API, {
+                        params: { depositor: depositor }
+                    });
+                }
+            } catch (error) {
+                console.log('Telegram alert error', error);
+            }
         }
     }
     if (fromBlock < block_number) {
@@ -388,19 +400,22 @@ async function executeWithdraw(deposits) {
     try {
         const tx = await wallet.createAndSignTx({ msgs: [msg] });
         result = await lcd.tx.broadcast(tx);
-
-        try {
-            // deposits.forEach(deposit => {
-            //     swapComplete(getChatIdByAddress(deposit.deposit_id));
-            // });
-        } catch (e) {
-            console.log(e);
-        }
     } catch (e) {
         console.log(e);
     }
 
     return result;
+}
+
+async function getDepositor(deposit_id) {
+    const sql = `
+        SELECT depositor FROM deposits
+        WHERE deposit_id = ? AND contract = ?;
+      `;
+
+    const row = await db.getAsync(sql, [deposit_id, ADDRESS]);
+
+    return row["depositor"];
 }
 
 async function updatePrice(id, price) {
