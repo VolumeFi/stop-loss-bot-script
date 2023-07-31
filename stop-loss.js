@@ -25,6 +25,7 @@ let WETH = null;
 let web3 = null;
 let contractInstance = null;
 let COINGECKO_CHAIN_ID = null;
+let ADDRESS = null;
 let networkName = null;
 let connections = null;
 let FROM_BLOCK = null;
@@ -44,6 +45,7 @@ async function setupConnections() {
         return {
             web3: web3,
             contractInstance: new web3.eth.Contract(JSON.parse(config.ABI), config.VYPER),
+            address: config.VYPER,
             coingeckoChainId: config.COINGECKO_CHAIN_ID,
             networkName: config.NETWORK_NAME,
             dex: config.DEX,
@@ -120,6 +122,7 @@ async function getLastBlock() {
     for (const connection of connections) {
         web3 = connection.web3;
         contractInstance = connection.contractInstance;
+        ADDRESS = connection.address;
         COINGECKO_CHAIN_ID = connection.coingeckoChainId;
         networkName = connection.networkName;
         WETH = connection.weth;
