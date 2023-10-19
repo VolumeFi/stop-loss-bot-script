@@ -36,7 +36,7 @@ let ADDRESS = null;
 let networkName = null;
 let connections = null;
 let FROM_BLOCK = null;
-let LOB_CW = null;
+let CW = null;
 let DEX = null;
 let BOT = "stopLoss";
 
@@ -121,29 +121,41 @@ let prices = {};
 
 async function getLastBlock() {
     if (processing) {
-        return 0
+        return 0;
     } else {
         processing = true;
     }
 
     for (const connection of connections) {
-        web3 = connection.web3;
-        contractInstance = connection.contractInstance;
-        ADDRESS = connection.address;
-        COINGECKO_CHAIN_ID = connection.coingeckoChainId;
-        networkName = connection.networkName;
-        WETH = connection.weth;
-        FROM_BLOCK = connection.fromBlock;
-        LOB_CW = connection.cw;
-        DEX = connection.dex;
-        prices[networkName] = [];
+         web3 = connection.web3;
+         contractInstance = connection.contractInstance;
+         ADDRESS = connection.address;
+         COINGECKO_CHAIN_ID = connection.coingeckoChainId;
+         networkName = connection.networkName;
+         WETH = connection.weth;
+         FROM_BLOCK = connection.fromBlock;
+         CW = connection.cw;
+         DEX = connection.dex;
+         healths = {}; // Assuming 'healths' is declared somewhere
+         healths[networkName] = [];
 
         try {
-            const row = await db.getAsync(`SELECT * FROM fetched_blocks WHERE network_name = ? AND dex = ? AND bot = ? AND ID = (SELECT MAX(ID) FROM fetched_blocks WHERE network_name = ? AND dex = ? AND bot = ?)`, [networkName, DEX, BOT, networkName, DEX, BOT]);
+            const row = await db.getAsync(`
+                SELECT * FROM fetched_blocks
+                WHERE network_name = ? AND dex = ? AND bot = ? AND contract_instance = ?
+                AND ID = (
+                    SELECT MAX(ID) FROM fetched_blocks
+                    WHERE network_name = ? AND dex = ? AND bot = ? AND contract_instance = ?
+                )`, [networkName, DEX, BOT, ADDRESS, networkName, DEX, BOT, ADDRESS]);
+
             let fromBlock = 0;
+
             if (row === undefined) {
-                const data = [FROM_BLOCK - 1, networkName, DEX, BOT];
-                await db.runAsync(`INSERT INTO fetched_blocks (block_number, network_name, dex, bot) VALUES (?, ?, ?, ?);`, data);
+                const data = [FROM_BLOCK - 1, networkName, DEX, BOT, ADDRESS];
+                await db.runAsync(`
+                    INSERT INTO fetched_blocks (block_number, network_name, dex, bot, contract_instance)
+                    VALUES (?, ?, ?, ?, ?);
+                `, data);
 
                 fromBlock = Number(FROM_BLOCK);
             } else {
@@ -151,6 +163,7 @@ async function getLastBlock() {
             }
 
             await getNewBlocks(fromBlock);
+
         } catch (err) {
             console.error(err);
         }
@@ -159,6 +172,7 @@ async function getLastBlock() {
 
     processing = false;
 }
+
 
 
 function delay(milliseconds) {
@@ -300,9 +314,15 @@ async function getNewBlocks(fromBlock) {
             }
         }
     }
+
     if (fromBlock < block_number) {
-        let sql = `INSERT INTO fetched_blocks (block_number, network_name, dex, bot) VALUES (?, ?, ?, ?);`;
-        let data = [block_number, networkName, DEX, BOT];
+        let sql = `UPDATE fetched_blocks
+                   SET block_number = ?
+                   WHERE network_name = ?
+                     AND dex = ?
+                     AND bot = ?
+                     AND contract_instance = ?;`;
+        let data = [block_number, networkName, DEX, BOT, ADDRESS];
         await db.runAsync(sql, data);
     }
 
@@ -408,7 +428,7 @@ async function executeWithdraw(deposits) {
     const wallet = lcd.wallet(mk);
     const msg = new MsgExecuteContract(
         wallet.key.accAddress,
-        LOB_CW,
+        CW,
         { "put_withdraw": { "deposits": deposits } }
     );
 
